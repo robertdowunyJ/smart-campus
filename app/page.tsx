@@ -2,7 +2,7 @@ export default function Home() {
   return (
     <main style={{ padding: 24 }}>
       <h1>Smart Campus MVP</h1>
-      <p>Hello~</p>
+      <p>Hello~~</p>
     </main>
   );
 }
