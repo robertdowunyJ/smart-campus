@@ -347,116 +347,146 @@ export function SharedCalendar({
         </div>
       </div>
 
-      {/* Weekday header */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
-          background: "rgba(255,255,255,0.03)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-        }}
-      >
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (
+      {/* ✅ Weekday header + Day cells 를 한 번에 가로스크롤 */}
+<div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+  <div style={{ minWidth: 840 }}>
+    {/* Weekday header */}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+        background: "rgba(255,255,255,0.03)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+      }}
+    >
+      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (
+        <div
+          key={w}
+          style={{
+            padding: "10px 12px",
+            fontSize: 12,
+            fontWeight: 1000,
+            opacity: 0.85,
+            color: "rgba(255,255,255,0.9)",
+            minWidth: 0,
+          }}
+        >
+          {w}
+        </div>
+      ))}
+    </div>
+
+    {/* Day cells */}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+        gridAutoRows: 122,
+      }}
+    >
+      {monthDays.map((d) => {
+        const inMonth = isSameMonth(d, monthStart);
+        const iso = toISO(d);
+        const evs = eventsForDate(d);
+        const selected = selectionContains(iso);
+
+        return (
           <div
-            key={w}
+            key={iso}
+            onMouseDown={() => (interactive ? onDayMouseDown(iso) : undefined)}
+            onMouseEnter={() => (interactive ? onDayMouseEnter(iso) : undefined)}
             style={{
-              padding: "10px 12px",
-              fontSize: 12,
-              fontWeight: 1000,
-              opacity: 0.85,
-              color: "rgba(255,255,255,0.9)",
+              borderRight: "1px solid rgba(255,255,255,0.06)",
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              padding: 10,
+              opacity: inMonth ? 1 : 0.4,
+              position: "relative",
+              cursor: interactive ? "crosshair" : "default",
+              background: selected ? "rgba(99,102,241,0.18)" : "transparent",
+              transition: "background 120ms ease",
+              userSelect: "none",
+              minWidth: 0, // ✅ 추가
             }}
+            title={interactive ? "드래그로 범위를 선택할 수 있어요" : undefined}
           >
-            {w}
-          </div>
-        ))}
-      </div>
-
-      {/* Day cells */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gridAutoRows: 122 }}>
-        {monthDays.map((d) => {
-          const inMonth = isSameMonth(d, monthStart);
-          const iso = toISO(d);
-          const evs = eventsForDate(d);
-          const selected = selectionContains(iso);
-
-          return (
             <div
-              key={iso}
-              onMouseDown={() => (interactive ? onDayMouseDown(iso) : undefined)}
-              onMouseEnter={() => (interactive ? onDayMouseEnter(iso) : undefined)}
               style={{
-                borderRight: "1px solid rgba(255,255,255,0.06)",
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
-                padding: 10,
-                opacity: inMonth ? 1 : 0.4,
-                position: "relative",
-                cursor: interactive ? "crosshair" : "default",
-                background: selected ? "rgba(99,102,241,0.18)" : "transparent",
-                transition: "background 120ms ease",
-                userSelect: "none",
+                fontSize: 12,
+                fontWeight: 1000,
+                opacity: 0.9,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                minWidth: 0,
               }}
-              title={interactive ? "드래그로 범위를 선택할 수 있어요" : undefined}
             >
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 1000,
-                  opacity: 0.9,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <span>{d.getDate()}</span>
-                {selected ? (
+              <span>{d.getDate()}</span>
+              {selected ? (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 1000,
+                    padding: "2px 6px",
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.10)",
+                    border: "1px solid rgba(255,255,255,0.10)",
+                  }}
+                >
+                  선택
+                </span>
+              ) : null}
+            </div>
+
+            {/* event bars */}
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+              {evs.slice(0, 3).map((e, idx) => (
+                <div
+                  key={`${iso}_${idx}_${e.label}`}
+                  style={{
+                    borderRadius: 10,
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    fontWeight: 1000,
+                    background: e.color,
+                    color: "white",
+                    boxShadow: "0 10px 28px rgba(0,0,0,0.20)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    minWidth: 0, // ✅ 추가
+                  }}
+                  title={e.kind === "weekly" ? "주간 반복 일정(예시)" : "기간 이벤트"}
+                >
+                  {/* ✅ 라벨이 길어도 칸을 밀지 않게 */}
                   <span
                     style={{
-                      fontSize: 11,
-                      fontWeight: 1000,
-                      padding: "2px 6px",
-                      borderRadius: 999,
-                      background: "rgba(255,255,255,0.10)",
-                      border: "1px solid rgba(255,255,255,0.10)",
+                      flex: 1,
+                      minWidth: 0,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
                     }}
                   >
-                    선택
+                    {e.label}
                   </span>
-                ) : null}
-              </div>
 
-              {/* event bars */}
-              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                {evs.slice(0, 3).map((e, idx) => (
-                  <div
-                    key={`${iso}_${idx}_${e.label}`}
-                    style={{
-                      borderRadius: 10,
-                      padding: "6px 8px",
-                      fontSize: 12,
-                      fontWeight: 1000,
-                      background: e.color,
-                      color: "white",
-                      boxShadow: "0 10px 28px rgba(0,0,0,0.20)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 8,
-                    }}
-                    title={e.kind === "weekly" ? "주간 반복 일정(예시)" : "기간 이벤트"}
-                  >
-                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {e.label}
-                    </span>
-                    {e.time ? <span style={{ opacity: 0.9 }}>{e.time}</span> : null}
-                  </div>
-                ))}
-                {evs.length > 3 ? <div style={{ fontSize: 12, opacity: 0.75 }}>+{evs.length - 3} more</div> : null}
-              </div>
+                  {e.time ? (
+                    <span style={{ opacity: 0.9, whiteSpace: "nowrap" }}>{e.time}</span>
+                  ) : null}
+                </div>
+              ))}
+              {evs.length > 3 ? (
+                <div style={{ fontSize: 12, opacity: 0.75 }}>+{evs.length - 3} more</div>
+              ) : null}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</div>
+
 
       <div style={{ padding: 12, fontSize: 12, opacity: 0.85, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         팁) 날짜 선택은 <b>마우스를 누른 채 드래그</b>로 시작~종료 범위를 잡으면 됩니다.
