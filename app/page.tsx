@@ -26,19 +26,19 @@ import {
 /**
  * NODE — Recruit Community + Shared Calendar (Single TSX file demo)
  *
- * ✅ 기존 유지:
- * - 로그인(닉네임) / 카테고리 / 리스트 / 상세 / 신청하기(드래그 선택) / 방 만들기
- * - 모달 스크롤 fix
- * - 로그인 후 "내 캘린더 설정" 화면 이동 + 카테고리 화면 하단에 내 캘린더 표시
- *
- * ✅ 이번 추가(요청사항):
- * 1) "내 캘린더" 일정 등록 시 시간대를 30분 단위 선택(타이핑 X)
- * 2) "방 만들기" 시간도 30분 단위 선택(타이핑 X)
- * 3) "신청하기"에서도 시간대를 30분 단위 선택(타이핑 X)
- * 4) 신청 전송 시 (날짜+시간)이 내 캘린더(그리고 방 일정)과 겹치면:
- *    - 1회 경고(alert) + 모달 내 안내 문구 표시 + 이번 전송은 취소
- *    - 다시 전송 버튼을 누르면 “중복 일정”으로 전송 허용(2회차는 통과)
- * 5) 신청 캘린더에서 내 일정과 겹치는 날을 자동 표시(셀 배경/배지 + 내 일정 바 표시)
+ * ✅ 포함된 기능(최종):
+ * - "use client" 최상단 고정 (Server/Client 중복 방지)
+ * - selectedPost 중복 정의 오류 해결: activePost로 통일
+ * - 로그인(닉네임) → 내 캘린더 설정 화면 → 카테고리 화면
+ * - 내 캘린더: 날짜(드래그) + 시간대(30분 단위 선택) + 제목 + 장소 → 중복 일정 허용
+ * - 카테고리 화면 아래에 내 캘린더 크게 배치 + 모달로 수정
+ * - 모집글 리스트/상세/신청하기(캘린더 드래그로 날짜 범위 여러개 선택)
+ * - 방 만들기(날짜 드래그 + 시간대(30분 단위) + 장소 + 상세)
+ * - 신청하기: 시간대(30분 단위) 선택
+ *    -> 내 캘린더/내가 만든 방/내가 한 신청과 "날짜+시간" 겹치면
+ *       1회 경고 + 신청 취소
+ *       다시 전송 버튼 누르면 "중복 일정 신청"으로 허용
+ * - 모달 스크롤: 배경 잠금 + 모달 내부 스크롤 + footer 버튼 항상 보임 + 위/아래 버튼
  */
 
 // -----------------------------
@@ -61,10 +61,9 @@ type RangeEvent = {
   endDate: string; // YYYY-MM-DD
   color: string;
 
-  // ✅ 시간/장소(선택)
+  // ✅ 추가: 시간대(선택형)
   startTime?: string; // "HH:MM"
   endTime?: string; // "HH:MM"
-  placeText?: string;
 };
 
 type RecruitPost = {
@@ -91,70 +90,21 @@ type Application = {
   postId: string;
   postTitle: string;
   applicant: string;
-
   ranges: AvailabilityRange[];
   startTime: string; // ✅ 신청 시간대
   endTime: string; // ✅ 신청 시간대
-
+  duplicate?: boolean; // ✅ 중복 경고 후 재전송으로 승인된 경우
   createdAt: string; // readable
   note?: string;
-
-  overlapAccepted?: boolean; // ✅ 중복 경고 후 재전송으로 통과된 신청인지 표시(데모용)
 };
 
-// 내 캘린더(본인 일정)
+// 내 캘린더(본인 일정) — 시간대 필수
 type MyCalendarEvent = RangeEvent & {
   title: string;
+  placeText: string;
   startTime: string;
   endTime: string;
-  placeText: string;
 };
-
-// -----------------------------
-// Time Utils (30-min slots)
-// -----------------------------
-function minToTime(mins: number) {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-function timeToMin(t: string) {
-  const [hh, mm] = t.split(":").map(Number);
-  return (hh || 0) * 60 + (mm || 0);
-}
-const TIME_OPTIONS: string[] = (() => {
-  const out: string[] = [];
-  for (let m = 0; m <= 1440; m += 30) out.push(minToTime(m)); // includes 24:00
-  return out;
-})();
-const TIME_START_OPTIONS = TIME_OPTIONS.slice(0, -1); // 00:00 ~ 23:30
-const TIME_END_OPTIONS = TIME_OPTIONS.slice(1); // 00:30 ~ 24:00
-
-function isValidTimeRange(start?: string, end?: string) {
-  if (!start || !end) return false;
-  const s = timeToMin(start);
-  const e = timeToMin(end);
-  return e > s;
-}
-function nextSlot(t: string) {
-  const idx = TIME_OPTIONS.indexOf(t);
-  if (idx >= 0 && idx + 1 < TIME_OPTIONS.length) return TIME_OPTIONS[idx + 1];
-  return t;
-}
-function rangesOverlapISO(aStart: string, aEnd: string, bStart: string, bEnd: string) {
-  const aS = parseISO(aStart).getTime();
-  const aE = parseISO(aEnd).getTime();
-  const bS = parseISO(bStart).getTime();
-  const bE = parseISO(bEnd).getTime();
-  return aS <= bE && bS <= aE;
-}
-function timeOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string) {
-  const aS = timeToMin(aStart);
-  const aE = timeToMin(aEnd);
-  const bS = timeToMin(bStart);
-  const bE = timeToMin(bEnd);
-  return aS < bE && bS < aE; // [start, end)
-}
 
 // -----------------------------
 // Dummy Data (초기값)
@@ -324,13 +274,46 @@ function pickEventColor() {
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
-function fmtTimeRange(start?: string, end?: string) {
-  if (!start || !end) return "";
-  return `${start}~${end}`;
+// -----------------------------
+// Time Utils (30-min slots)
+// -----------------------------
+const TIME_OPTIONS: string[] = (() => {
+  const out: string[] = [];
+  for (let m = 0; m <= 24 * 60; m += 30) {
+    const hh = String(Math.floor(m / 60)).padStart(2, "0");
+    const mm = String(m % 60).padStart(2, "0");
+    out.push(`${hh}:${mm}`);
+  }
+  return out; // includes 24:00
+})();
+
+function timeToMin(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function isValidTimeRange(start: string, end: string) {
+  return timeToMin(end) > timeToMin(start);
+}
+
+function timeOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string) {
+  const as = timeToMin(aStart);
+  const ae = timeToMin(aEnd);
+  const bs = timeToMin(bStart);
+  const be = timeToMin(bEnd);
+  return as < be && bs < ae;
+}
+
+function dateOverlap(aStartISO: string, aEndISO: string, bStartISO: string, bEndISO: string) {
+  const as = parseISO(aStartISO).getTime();
+  const ae = parseISO(aEndISO).getTime();
+  const bs = parseISO(bStartISO).getTime();
+  const be = parseISO(bEndISO).getTime();
+  return Math.max(as, bs) <= Math.min(ae, be);
 }
 
 // -----------------------------
-// UI Small components
+// UI Small components (no Tailwind required)
 // -----------------------------
 function Pill({ text, color, icon }: { text: string; color: string; icon?: React.ReactNode }) {
   return (
@@ -412,101 +395,11 @@ function Button({
   );
 }
 
-function TimeRangePicker({
-  start,
-  end,
-  setStart,
-  setEnd,
-  inputStyle,
-  labelSmall,
-  title,
-}: {
-  start: string;
-  end: string;
-  setStart: (v: string) => void;
-  setEnd: (v: string) => void;
-  inputStyle: React.CSSProperties;
-  labelSmall: React.CSSProperties;
-  title?: string;
-}) {
-  const selectStyle: React.CSSProperties = {
-    ...inputStyle,
-    cursor: "pointer",
-    paddingRight: 34,
-    appearance: "none",
-    WebkitAppearance: "none",
-    MozAppearance: "none",
-  };
-
-  const endOptions = useMemo(() => {
-    if (!start) return TIME_END_OPTIONS;
-    const s = timeToMin(start);
-    return TIME_END_OPTIONS.filter((t) => timeToMin(t) > s);
-  }, [start]);
-
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      {title ? (
-        <div style={{ ...labelSmall, display: "flex", alignItems: "center", gap: 8 }}>
-          <Clock size={14} />
-          {title}
-        </div>
-      ) : null}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <div style={{ position: "relative" }}>
-          <div style={labelSmall}>시작</div>
-          <select
-            style={selectStyle}
-            value={start}
-            onChange={(e) => {
-              const v = e.target.value;
-              setStart(v);
-              if (!end || timeToMin(end) <= timeToMin(v)) setEnd(nextSlot(v));
-            }}
-          >
-            <option value="" disabled>
-              선택
-            </option>
-            {TIME_START_OPTIONS.map((t) => (
-              <option key={`s_${t}`} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={16} style={{ position: "absolute", right: 12, top: 38, opacity: 0.9, pointerEvents: "none" }} />
-        </div>
-
-        <div style={{ position: "relative" }}>
-          <div style={labelSmall}>종료</div>
-          <select
-            style={selectStyle}
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            disabled={!start}
-            title={!start ? "시작 시간을 먼저 선택하세요" : undefined}
-          >
-            <option value="" disabled>
-              선택
-            </option>
-            {endOptions.map((t) => (
-              <option key={`e_${t}`} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={16} style={{ position: "absolute", right: 12, top: 38, opacity: 0.9, pointerEvents: "none" }} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /**
  * ✅ Modal scroll fix:
  * - 배경(body) 스크롤 잠금
  * - 모달 내부에 scroll 영역을 만들어 버튼(footer)이 항상 보이게
- * - 헤더에 내부 스크롤 up/down 버튼 제공
+ * - 헤더에 내부 스크롤 up/down 버튼 제공(원하면 눌러서 모달 내부만 스크롤)
  */
 function Modal({
   open,
@@ -636,6 +529,57 @@ function Modal({
 }
 
 // -----------------------------
+// Time Range Picker (30-min slots)
+// -----------------------------
+function TimeRangePicker({
+  label,
+  start,
+  end,
+  onChangeStart,
+  onChangeEnd,
+  inputStyle,
+}: {
+  label: string;
+  start: string;
+  end: string;
+  onChangeStart: (v: string) => void;
+  onChangeEnd: (v: string) => void;
+  inputStyle: React.CSSProperties;
+}) {
+  const endOptions = TIME_OPTIONS.filter((t) => timeToMin(t) > timeToMin(start));
+  const startOptions = TIME_OPTIONS.filter((t) => t !== "24:00"); // start는 24:00 제외
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ fontSize: 12, opacity: 0.82, fontWeight: 1000 }}>{label}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <select style={inputStyle} value={start} onChange={(e) => onChangeStart(e.target.value)}>
+          {startOptions.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+
+        <select style={inputStyle} value={end} onChange={(e) => onChangeEnd(e.target.value)}>
+          {endOptions.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {!isValidTimeRange(start, end) ? (
+        <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 900, color: "#f59e0b" }}>
+          끝 시간이 시작 시간보다 뒤여야 합니다.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// -----------------------------
 // Shared Calendar Component
 // -----------------------------
 function SharedCalendar({
@@ -651,21 +595,19 @@ function SharedCalendar({
   onDayMouseEnter,
   onClearSelections,
   interactive = true,
-  cellHint,
 }: {
   title: string;
   cursor: Date;
   setCursor: (d: Date) => void;
   monthDays: Date[];
   monthStart: Date;
-  eventsForDate: (d: Date) => { label: string; time?: string; color: string; kind: "event" | "weekly" | "my" }[];
+  eventsForDate: (d: Date) => { label: string; time?: string; color: string; kind: "event" | "weekly" }[];
   selections: AvailabilityRange[];
   draftDrag: { startISO: string; endISO: string } | null;
   onDayMouseDown: (iso: string) => void;
   onDayMouseEnter: (iso: string) => void;
   onClearSelections?: () => void;
   interactive?: boolean;
-  cellHint?: (dayISO: string) => { bg?: string; badge?: string } | null;
 }) {
   const selectionContains = (dayISO: string) => {
     for (const r of selections) {
@@ -705,19 +647,11 @@ function SharedCalendar({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Button
-            variant="soft"
-            onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-            icon={<ChevronLeft size={16} />}
-          >
+          <Button variant="soft" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} icon={<ChevronLeft size={16} />}>
             Prev
           </Button>
           <div style={{ fontWeight: 1000, minWidth: 92, textAlign: "center" }}>{fmtKoreanMonthTitle(cursor)}</div>
-          <Button
-            variant="soft"
-            onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-            icon={<ChevronRight size={16} />}
-          >
+          <Button variant="soft" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} icon={<ChevronRight size={16} />}>
             Next
           </Button>
 
@@ -759,13 +693,6 @@ function SharedCalendar({
           const iso = toISO(d);
           const evs = eventsForDate(d);
           const selected = selectionContains(iso);
-          const hint = cellHint ? cellHint(iso) : null;
-
-          const bg = selected
-            ? "rgba(99,102,241,0.18)"
-            : hint?.bg
-              ? hint.bg
-              : "transparent";
 
           return (
             <div
@@ -779,7 +706,7 @@ function SharedCalendar({
                 opacity: inMonth ? 1 : 0.4,
                 position: "relative",
                 cursor: interactive ? "crosshair" : "default",
-                background: bg,
+                background: selected ? "rgba(99,102,241,0.18)" : "transparent",
                 transition: "background 120ms ease",
                 userSelect: "none",
               }}
@@ -793,11 +720,9 @@ function SharedCalendar({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  gap: 8,
                 }}
               >
                 <span>{d.getDate()}</span>
-
                 {selected ? (
                   <span
                     style={{
@@ -810,19 +735,6 @@ function SharedCalendar({
                     }}
                   >
                     선택
-                  </span>
-                ) : hint?.badge ? (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 1000,
-                      padding: "2px 6px",
-                      borderRadius: 999,
-                      background: "rgba(239,68,68,0.22)",
-                      border: "1px solid rgba(239,68,68,0.35)",
-                    }}
-                  >
-                    {hint.badge}
                   </span>
                 ) : null}
               </div>
@@ -844,10 +756,10 @@ function SharedCalendar({
                       justifyContent: "space-between",
                       gap: 8,
                     }}
-                    title={e.kind === "weekly" ? "주간 반복 일정(예시)" : e.kind === "my" ? "내 일정" : "기간 이벤트"}
+                    title={e.kind === "weekly" ? "주간 반복 일정(예시)" : "기간 이벤트/내 일정"}
                   >
                     <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.label}</span>
-                    {e.time ? <span style={{ opacity: 0.92 }}>{e.time}</span> : null}
+                    {e.time ? <span style={{ opacity: 0.9 }}>{e.time}</span> : null}
                   </div>
                 ))}
                 {evs.length > 3 ? <div style={{ fontSize: 12, opacity: 0.75 }}>+{evs.length - 3} more</div> : null}
@@ -868,6 +780,7 @@ function SharedCalendar({
 // Main Page
 // -----------------------------
 export default function Home() {
+  // posts
   const [posts, setPosts] = useState<RecruitPost[]>(() => INITIAL_POSTS);
 
   // auth
@@ -887,7 +800,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
 
   // -----------------------------
-  // ✅ 내 캘린더 state
+  // ✅ 내 캘린더 (본인 일정)
   // -----------------------------
   const [myCalendarEvents, setMyCalendarEvents] = useState<MyCalendarEvent[]>([]);
   const [myCursor, setMyCursor] = useState<Date>(() => new Date());
@@ -901,20 +814,18 @@ export default function Home() {
     return days;
   }, [myMonthStart]);
 
-  // 내 캘린더 편집(설정) 드래그 범위
+  // 내 캘린더 드래그 범위
   const [myDragging, setMyDragging] = useState(false);
   const [myDragStartISO, setMyDragStartISO] = useState<string | null>(null);
   const [myDragEndISO, setMyDragEndISO] = useState<string | null>(null);
   const [myStartISO, setMyStartISO] = useState<string | null>(null);
   const [myEndISO, setMyEndISO] = useState<string | null>(null);
 
-  // 내 캘린더 이벤트 입력 폼
+  // 내 캘린더 입력
   const [myTitle, setMyTitle] = useState("");
   const [myPlaceText, setMyPlaceText] = useState("");
-
-  // ✅ 시간 선택(30분 단위)
-  const [myStartTime, setMyStartTime] = useState<string>("");
-  const [myEndTime, setMyEndTime] = useState<string>("");
+  const [myStartTime, setMyStartTime] = useState("09:00");
+  const [myEndTime, setMyEndTime] = useState("09:30");
 
   // 내 캘린더 수정 모달
   const [myEditOpen, setMyEditOpen] = useState(false);
@@ -936,8 +847,6 @@ export default function Home() {
   const resetMyForm = () => {
     setMyTitle("");
     setMyPlaceText("");
-    setMyStartTime("");
-    setMyEndTime("");
   };
 
   const startMyDrag = (iso: string) => {
@@ -977,37 +886,35 @@ export default function Home() {
 
   const canAddMyEvent = useMemo(() => {
     return (
-      myTitle.trim() &&
-      myPlaceText.trim() &&
-      myStartISO &&
-      myEndISO &&
+      myTitle.trim().length > 0 &&
+      myPlaceText.trim().length > 0 &&
+      !!myStartISO &&
+      !!myEndISO &&
       isValidTimeRange(myStartTime, myEndTime)
     );
   }, [myTitle, myPlaceText, myStartISO, myEndISO, myStartTime, myEndTime]);
 
   const addMyEvent = () => {
     if (!canAddMyEvent) return;
-    const startDate = myStartISO!;
-    const endDate = myEndISO!;
+    const start = myStartISO!;
+    const end = myEndISO!;
     const color = pickEventColor();
     const title = myTitle.trim();
     const placeText = myPlaceText.trim();
-    const startTime = myStartTime;
-    const endTime = myEndTime;
 
     const newEv: MyCalendarEvent = {
       id: uid("my"),
       title,
       placeText,
-      startTime,
-      endTime,
-      label: `${title} · ${placeText}`,
-      startDate,
-      endDate,
+      startTime: myStartTime,
+      endTime: myEndTime,
+      label: `${title} / ${myStartTime}~${myEndTime} · ${placeText}`,
+      startDate: start,
+      endDate: end,
       color,
     };
 
-    // ✅ 중복 허용(겹쳐도 그냥 추가)
+    // ✅ 중복 허용
     setMyCalendarEvents((prev) => [newEv, ...prev]);
 
     resetMyDraft();
@@ -1023,39 +930,36 @@ export default function Home() {
     return myCalendarEvents
       .filter((e) => betweenISO(iso, e.startDate, e.endDate))
       .map((e) => ({
-        label: `${e.title} · ${e.placeText}`,
-        time: fmtTimeRange(e.startTime, e.endTime),
+        label: e.label,
         color: e.color,
-        kind: "my" as const,
+        kind: "event" as const,
       }));
   };
 
   // -----------------------------
-  // 기존: detail/apply 캘린더 커서
+  // 모집방 상세 캘린더 커서
   // -----------------------------
   const [cursor, setCursor] = useState(() => new Date());
 
-  // 기존: apply drag selection state (availability)
+  // 신청 드래그 선택 state
   const [dragging, setDragging] = useState(false);
   const [dragStartISO, setDragStartISO] = useState<string | null>(null);
   const [dragEndISO, setDragEndISO] = useState<string | null>(null);
 
-  // applicant selections per post
+  // 신청자 선택 범위 저장(post별 여러 구간)
   const [mySelectionsByPost, setMySelectionsByPost] = useState<Record<string, AvailabilityRange[]>>({});
 
-  // applications inbox by owner
+  // 신청 데이터(inbox)
   const [applications, setApplications] = useState<Application[]>([]);
   const [applyOpen, setApplyOpen] = useState(false);
   const [applyNote, setApplyNote] = useState("");
 
-  // ✅ 신청 시간 선택(30분 단위)
-  const [applyStartTime, setApplyStartTime] = useState<string>("");
-  const [applyEndTime, setApplyEndTime] = useState<string>("");
+  // ✅ 신청 시간대 + 중복 허용 플래그
+  const [applyStartTime, setApplyStartTime] = useState("19:00");
+  const [applyEndTime, setApplyEndTime] = useState("19:30");
+  const [allowDuplicateApply, setAllowDuplicateApply] = useState(false);
 
-  // ✅ 겹침 1회 경고 후 재전송 허용 게이트
-  const [applyOverrideReady, setApplyOverrideReady] = useState(false);
-  const [applyConflictMessage, setApplyConflictMessage] = useState<string>("");
-
+  // ✅ selectedPost 중복 오류 해결: activePost로 단일화
   const activePost = useMemo(() => posts.find((p) => p.id === selectedPostId) ?? null, [posts, selectedPostId]);
 
   const monthStart = useMemo(() => startOfMonth(cursor), [cursor]);
@@ -1083,8 +987,8 @@ export default function Home() {
   }, [category, search, posts]);
 
   const currentSelections = useMemo(() => {
-    if (!selectedPost) return [];
-    return mySelectionsByPost[selectedPost.id] ?? [];
+    if (!activePost) return [];
+    return mySelectionsByPost[activePost.id] ?? [];
   }, [mySelectionsByPost, activePost]);
 
   const draftDrag = useMemo(() => {
@@ -1109,8 +1013,7 @@ export default function Home() {
     const ranges = post.rangeEvents
       .filter((r) => betweenISO(iso, r.startDate, r.endDate))
       .map((r) => ({
-        label: r.placeText ? `${r.label} · ${r.placeText}` : r.label,
-        time: r.startTime && r.endTime ? fmtTimeRange(r.startTime, r.endTime) : undefined,
+        label: r.label,
         color: r.color,
         kind: "event" as const,
       }));
@@ -1118,29 +1021,9 @@ export default function Home() {
     return [...ranges, ...weekly];
   };
 
-  // ✅ apply 캘린더: post 이벤트 + 내 캘린더 이벤트 같이 보여주기
-  const applyEventsForDate = (d: Date) => {
-    if (!selectedPost) return [];
-    const base = eventsForDate(selectedPost, d);
-    const my = myEventsForDate(d).map((e) => ({
-      ...e,
-      // 내 일정은 식별이 쉽게 라벨 앞에 "내:" 표시
-      label: `내: ${e.label}`,
-      kind: "my" as const,
-    }));
-    // 내 일정 먼저 보여주고 싶으면 my를 앞에, 아니면 뒤에
-    return [...my, ...base];
-  };
-
-  const resetApplyConflictGate = () => {
-    setApplyOverrideReady(false);
-    setApplyConflictMessage("");
-  };
-
-  // apply drag handlers
+  // 신청 드래그 handlers
   const startDrag = (iso: string) => {
     if (!applyOpen) return;
-    resetApplyConflictGate();
     setDragging(true);
     setDragStartISO(iso);
     setDragEndISO(iso);
@@ -1154,21 +1037,19 @@ export default function Home() {
 
   const finalizeDrag = () => {
     if (!applyOpen) return;
-    if (!dragging || !selectedPost || !dragStartISO || !dragEndISO) {
+    if (!dragging || !activePost || !dragStartISO || !dragEndISO) {
       setDragging(false);
       setDragStartISO(null);
       setDragEndISO(null);
       return;
     }
 
-    resetApplyConflictGate();
-
     const nr = normalizeRange(dragStartISO, dragEndISO);
     const newRange: AvailabilityRange = { id: uid("range"), startDate: nr.start, endDate: nr.end };
 
     setMySelectionsByPost((prev) => {
-      const old = prev[selectedPost.id] ?? [];
-      return { ...prev, [selectedPost.id]: [newRange, ...old] };
+      const old = prev[activePost.id] ?? [];
+      return { ...prev, [activePost.id]: [newRange, ...old] };
     });
 
     setDragging(false);
@@ -1192,6 +1073,7 @@ export default function Home() {
     setLoggedIn(true);
     setUserName(n);
 
+    // 로그인 직후: 내 캘린더 설정 화면으로 이동
     setView("myCalendarSetup");
     setMyCursor(new Date());
   };
@@ -1208,10 +1090,10 @@ export default function Home() {
     resetMyForm();
     setMyEditOpen(false);
 
-    // apply states reset
-    setApplyStartTime("");
-    setApplyEndTime("");
-    resetApplyConflictGate();
+    // 신청 관련도 초기화
+    setApplications([]);
+    setMySelectionsByPost({});
+    setAllowDuplicateApply(false);
   };
 
   const goCategory = () => setView("category");
@@ -1230,97 +1112,128 @@ export default function Home() {
 
   // apply flow
   const openApply = () => {
-    if (!selectedPost) return;
+    if (!activePost) return;
     setApplyOpen(true);
     setApplyNote("");
-
-    // ✅ 매번 새로 시작
-    setApplyStartTime("");
-    setApplyEndTime("");
-    resetApplyConflictGate();
+    setAllowDuplicateApply(false);
+    setApplyStartTime("19:00");
+    setApplyEndTime("19:30");
   };
 
   const clearMySelections = () => {
-    if (!selectedPost) return;
-    resetApplyConflictGate();
-    setMySelectionsByPost((prev) => ({ ...prev, [selectedPost.id]: [] }));
+    if (!activePost) return;
+    setMySelectionsByPost((prev) => ({ ...prev, [activePost.id]: [] }));
+    setAllowDuplicateApply(false);
   };
 
-  // ✅ 겹침(내 캘린더 + 방 일정) 판정
-  const hasApplyConflict = useMemo(() => {
-    if (!selectedPost) return false;
-    if (!isValidTimeRange(applyStartTime, applyEndTime)) return false;
-    const ranges = mySelectionsByPost[selectedPost.id] ?? [];
-    if (ranges.length === 0) return false;
+  // 시간/선택이 바뀌면 "2번째 클릭 허용" 리셋
+  useEffect(() => {
+    if (!applyOpen) return;
+    setAllowDuplicateApply(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyOpen, applyStartTime, applyEndTime, currentSelections.length]);
 
-    // 1) 내 캘린더와 겹침
-    const conflictWithMy = myCalendarEvents.some((myEv) => {
-      if (!timeOverlap(applyStartTime, applyEndTime, myEv.startTime, myEv.endTime)) return false;
-      return ranges.some((r) => rangesOverlapISO(r.startDate, r.endDate, myEv.startDate, myEv.endDate));
-    });
+  // ✅ 충돌 검사
+  const findConflictsForApply = (candidate: AvailabilityRange[], startTime: string, endTime: string) => {
+    const conflicts: string[] = [];
 
-    // 2) 방(게시글) 일정(rangeEvents 중 시간 있는 것)과 겹침
-    const timedRoomEvents = selectedPost.rangeEvents.filter((re) => re.startTime && re.endTime);
-    const conflictWithRoom = timedRoomEvents.some((re) => {
-      if (!re.startTime || !re.endTime) return false;
-      if (!timeOverlap(applyStartTime, applyEndTime, re.startTime, re.endTime)) return false;
-      return ranges.some((r) => rangesOverlapISO(r.startDate, r.endDate, re.startDate, re.endDate));
-    });
+    // 1) 내 캘린더 일정
+    for (const cr of candidate) {
+      for (const ev of myCalendarEvents) {
+        if (
+          dateOverlap(cr.startDate, cr.endDate, ev.startDate, ev.endDate) &&
+          timeOverlap(startTime, endTime, ev.startTime, ev.endTime)
+        ) {
+          conflicts.push(`내 캘린더: ${ev.title} (${ev.startDate}~${ev.endDate} / ${ev.startTime}~${ev.endTime})`);
+        }
+      }
+    }
 
-    return conflictWithMy || conflictWithRoom;
-  }, [activePost, mySelectionsByPost, applyStartTime, applyEndTime, myCalendarEvents]);
+    // 2) 내가 만든 방(방장인 posts)의 일정(rangeEvents에 시간 포함된 것만)
+    const myRooms = posts.filter((p) => p.ownerName === userName);
+    for (const cr of candidate) {
+      for (const p of myRooms) {
+        for (const re of p.rangeEvents) {
+          if (!re.startTime || !re.endTime) continue;
+          if (
+            dateOverlap(cr.startDate, cr.endDate, re.startDate, re.endDate) &&
+            timeOverlap(startTime, endTime, re.startTime, re.endTime)
+          ) {
+            conflicts.push(`내가 만든 방: ${p.title} (${re.startDate}~${re.endDate} / ${re.startTime}~${re.endTime})`);
+          }
+        }
+      }
+    }
+
+    // 3) 내가 이미 넣은 신청(내 신청들)
+    const myApps = applications.filter((a) => a.applicant === userName);
+    for (const cr of candidate) {
+      for (const a of myApps) {
+        for (const r of a.ranges) {
+          if (
+            dateOverlap(cr.startDate, cr.endDate, r.startDate, r.endDate) &&
+            timeOverlap(startTime, endTime, a.startTime, a.endTime)
+          ) {
+            conflicts.push(`내 신청: ${a.postTitle} (${r.startDate}~${r.endDate} / ${a.startTime}~${a.endTime})`);
+          }
+        }
+      }
+    }
+
+    return Array.from(new Set(conflicts));
+  };
 
   const sendToOwner = () => {
-    if (!selectedPost) return;
+    if (!activePost) return;
 
-    const ranges = mySelectionsByPost[selectedPost.id] ?? [];
+    const ranges = mySelectionsByPost[activePost.id] ?? [];
     if (ranges.length === 0) return;
 
     if (!isValidTimeRange(applyStartTime, applyEndTime)) {
-      alert("신청 시간대를 먼저 선택해주세요. (30분 단위)");
+      alert("시간대를 올바르게 선택해주세요. (끝 시간이 시작 시간보다 뒤여야 합니다)");
       return;
     }
 
-    // ✅ 겹침이면: 1회차는 막고, 2회차부터 허용
-    if (hasApplyConflict && !applyOverrideReady) {
-      setApplyOverrideReady(true);
-      const msg =
-        "⚠️ 내 캘린더/방 일정과 신청 시간대가 겹칩니다.\n" +
-        "이번 전송은 취소됩니다.\n\n" +
-        "원하면 시간/날짜를 다시 지정하세요.\n" +
-        "그래도 진행하려면 ‘방장에게 전송’을 한 번 더 누르세요. (중복 일정으로 전송됩니다)";
-      setApplyConflictMessage("시간대가 겹쳐서 신청이 취소되었습니다. 다시 전송하면 중복 일정으로 신청됩니다.");
-      alert(msg);
+    const conflicts = findConflictsForApply(ranges, applyStartTime, applyEndTime);
+
+    // ✅ 1회차: 경고 + 취소
+    if (conflicts.length > 0 && !allowDuplicateApply) {
+      alert(
+        `⚠️ 시간대가 겹쳐서 신청이 취소되었습니다.\n\n겹치는 일정:\n- ${conflicts.join("\n- ")}\n\n다시 “방장에게 전송”을 누르면 중복일정으로 신청됩니다.`
+      );
+      setAllowDuplicateApply(true);
       return;
     }
 
+    // ✅ 2회차(또는 충돌 없음): 신청 진행
     const app: Application = {
       id: uid("app"),
-      postId: selectedPost.id,
-      postTitle: selectedPost.title,
+      postId: activePost.id,
+      postTitle: activePost.title,
       applicant: userName,
       ranges,
       startTime: applyStartTime,
       endTime: applyEndTime,
+      duplicate: conflicts.length > 0,
       createdAt: nowLabel(),
-      note: applyNote.trim() || undefined,
-      overlapAccepted: hasApplyConflict ? true : undefined,
+      note: (conflicts.length > 0 ? "[중복일정 신청]\n" : "") + (applyNote.trim() || ""),
     };
 
     setApplications((prev) => [app, ...prev]);
+    setAllowDuplicateApply(false);
     setApplyOpen(false);
-    resetApplyConflictGate();
-    alert(hasApplyConflict ? "중복 일정으로 신청이 전송되었습니다!" : "방장에게 가능한 날짜/시간이 전송되었습니다!");
+
+    alert(conflicts.length > 0 ? "중복 일정으로 신청되었습니다!" : "방장에게 가능한 날짜가 전송되었습니다!");
   };
 
-  const inboxForSelectedPost = useMemo(() => {
-    if (!selectedPost) return [];
-    return applications.filter((a) => a.postId === selectedPost.id);
+  const inboxForActivePost = useMemo(() => {
+    if (!activePost) return [];
+    return applications.filter((a) => a.postId === activePost.id);
   }, [applications, activePost]);
 
   const isOwner = useMemo(() => {
-    if (!selectedPost) return false;
-    return selectedPost.ownerName === userName;
+    if (!activePost) return false;
+    return activePost.ownerName === userName;
   }, [activePost, userName]);
 
   // -----------------------------
@@ -1331,10 +1244,8 @@ export default function Home() {
   const [cPlace, setCPlace] = useState("");
   const [cField, setCField] = useState("");
   const [cDetail, setCDetail] = useState("");
-
-  // ✅ 방 만들기 시간 선택(30분 단위)
-  const [cStartTime, setCStartTime] = useState<string>("");
-  const [cEndTime, setCEndTime] = useState<string>("");
+  const [cStartTime, setCStartTime] = useState("19:00");
+  const [cEndTime, setCEndTime] = useState("19:30");
 
   const [createCursor, setCreateCursor] = useState<Date>(() => new Date());
   const cMonthStart = useMemo(() => startOfMonth(createCursor), [createCursor]);
@@ -1364,8 +1275,8 @@ export default function Home() {
     setCPlace("");
     setCField("");
     setCDetail("");
-    setCStartTime("");
-    setCEndTime("");
+    setCStartTime("19:00");
+    setCEndTime("19:30");
     setCreateCursor(new Date());
     setCDragging(false);
     setCDragStartISO(null);
@@ -1426,7 +1337,7 @@ export default function Home() {
 
   const createPreviewEventsForDate = (d: Date) => {
     const iso = toISO(d);
-    const out: { label: string; time?: string; color: string; kind: "event" | "weekly" | "my" }[] = [];
+    const out: { label: string; time?: string; color: string; kind: "event" | "weekly" }[] = [];
 
     const start = cStartISO ?? (cDragging ? cDragStartISO : null);
     const end = cEndISO ?? (cDragging ? cDragEndISO : null);
@@ -1434,11 +1345,10 @@ export default function Home() {
     if (start && end) {
       const nr = normalizeRange(start, end);
       if (betweenISO(iso, nr.start, nr.end)) {
+        const timeText = `${cStartTime}~${cEndTime}`;
         const placeText = cPlace.trim() || "장소(입력)";
-        const t = isValidTimeRange(cStartTime, cEndTime) ? fmtTimeRange(cStartTime, cEndTime) : "시간(선택)";
         out.push({
-          label: `방 일정 · ${placeText}`,
-          time: t,
+          label: `${timeText} · ${placeText}`,
           color: "rgba(99,102,241,1)",
           kind: "event",
         });
@@ -1453,28 +1363,27 @@ export default function Home() {
       cField.trim().length > 0 &&
       cDetail.trim().length > 0 &&
       cPlace.trim().length > 0 &&
-      isValidTimeRange(cStartTime, cEndTime) &&
       !!cStartISO &&
-      !!cEndISO
+      !!cEndISO &&
+      isValidTimeRange(cStartTime, cEndTime)
     );
-  }, [cTitle, cField, cDetail, cPlace, cStartTime, cEndTime, cStartISO, cEndISO]);
+  }, [cTitle, cField, cDetail, cPlace, cStartISO, cEndISO, cStartTime, cEndTime]);
 
   const createRoom = () => {
     if (!canCreate) return;
-    const startDate = cStartISO!;
-    const endDate = cEndISO!;
+    const start = cStartISO!;
+    const end = cEndISO!;
     const color = pickEventColor();
-
-    const timeRangeText = fmtTimeRange(cStartTime, cEndTime);
+    const timeText = `${cStartTime}~${cEndTime}`;
 
     const newPost: RecruitPost = {
       id: uid("post"),
       category,
       title: cTitle.trim(),
-      summary: `${cField.trim()} · ${timeRangeText} · ${cPlace.trim()}`,
+      summary: `${cField.trim()} · ${timeText} · ${cPlace.trim()}`,
       body:
         `1. 제목: ${cTitle.trim()}\n` +
-        `2. 날짜/시간/장소: ${startDate} ~ ${endDate} / ${timeRangeText} / ${cPlace.trim()}\n` +
+        `2. 날짜/시간/장소: ${start} ~ ${end} / ${timeText} / ${cPlace.trim()}\n` +
         `3. 모집분야: ${cField.trim()}\n` +
         `4. 상세설명:\n${cDetail.trim()}\n`,
       ownerName: userName,
@@ -1483,13 +1392,12 @@ export default function Home() {
       rangeEvents: [
         {
           id: uid("re"),
-          label: "방 일정",
-          placeText: cPlace.trim(),
-          startDate,
-          endDate,
+          label: `${timeText} · ${cPlace.trim()}`,
+          startDate: start,
+          endDate: end,
+          color,
           startTime: cStartTime,
           endTime: cEndTime,
-          color,
         },
       ],
     };
@@ -1554,11 +1462,6 @@ export default function Home() {
   const labelSmall: React.CSSProperties = { fontSize: 12, opacity: 0.82, fontWeight: 1000 };
 
   // -----------------------------
-  // Derived
-  // -----------------------------
-  const selectedPost = useMemo(() => posts.find((p) => p.id === selectedPostId) ?? null, [posts, selectedPostId]);
-
-  // -----------------------------
   // Render
   // -----------------------------
   return (
@@ -1583,7 +1486,7 @@ export default function Home() {
             <div>
               <div style={{ fontSize: 16, fontWeight: 1100, letterSpacing: 0.2 }}>Node</div>
               <div style={{ fontSize: 12, opacity: 0.82, fontWeight: 900 }}>
-                (추가) 시간대 30분 선택 + 겹침 1회 경고/2회 허용
+                (최종) 시간대 선택 + 겹치면 1회 경고 후 취소 → 재전송 시 중복 신청
               </div>
             </div>
           </div>
@@ -1610,7 +1513,9 @@ export default function Home() {
         {view === "login" ? (
           <div style={{ ...card, padding: 18 }}>
             <div style={{ fontSize: 20, fontWeight: 1100, marginBottom: 6 }}>로그인</div>
-            <div style={{ fontSize: 13, opacity: 0.82, fontWeight: 800, marginBottom: 14 }}>(데모) 닉네임만 입력하고 로그인합니다.</div>
+            <div style={{ fontSize: 13, opacity: 0.82, fontWeight: 800, marginBottom: 14 }}>
+              (데모) 닉네임만 입력하고 로그인합니다.
+            </div>
 
             <div style={{ display: "grid", gap: 10, maxWidth: 420 }}>
               <div style={labelSmall}>닉네임</div>
@@ -1644,7 +1549,7 @@ export default function Home() {
               >
                 이번 흐름:
                 <div style={{ marginTop: 8, fontWeight: 900 }}>
-                  1) 로그인 → 2) 내 캘린더 설정(날짜 드래그 + 시간 30분 선택) → 3) 카테고리 화면(아래에 내 캘린더 표시)
+                  1) 로그인 → 2) 내 캘린더 설정(중복 일정 OK, 시간대 선택) → 3) 카테고리 선택(아래 내 캘린더 표시)
                 </div>
               </div>
             </div>
@@ -1660,12 +1565,18 @@ export default function Home() {
                   <div style={{ fontSize: 20, fontWeight: 1100, marginBottom: 6 }}>내 캘린더 설정</div>
                   <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 850, lineHeight: 1.55 }}>
                     여러 일정을 <b>중복</b>으로 계속 추가할 수 있어요(겹쳐도 OK).<br />
-                    일정은 <b>날짜(드래그 선택)</b> + <b>시간(30분 단위 선택)</b> + <b>제목/장소</b>로 등록됩니다.
+                    일정은 <b>날짜(드래그 선택)</b> + <b>시간대(30분 단위 선택)</b> + <b>제목/장소</b>로 등록됩니다.
                   </div>
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Button variant="ghost" onClick={goCategory} icon={<ArrowLeft size={16} />}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      goCategory();
+                    }}
+                    icon={<ArrowLeft size={16} />}
+                  >
                     건너뛰고 카테고리로
                   </Button>
                   <Button variant="primary" onClick={goCategory} icon={<CheckCircle2 size={16} />}>
@@ -1686,21 +1597,23 @@ export default function Home() {
                 </div>
 
                 <TimeRangePicker
-                  title="시간(30분 단위)"
+                  label="시간대(30분 단위)"
                   start={myStartTime}
                   end={myEndTime}
-                  setStart={(v) => {
+                  onChangeStart={(v) => {
                     setMyStartTime(v);
-                    if (!myEndTime || timeToMin(myEndTime) <= timeToMin(v)) setMyEndTime(nextSlot(v));
+                    if (!isValidTimeRange(v, myEndTime)) {
+                      const next = TIME_OPTIONS.find((t) => timeToMin(t) > timeToMin(v)) ?? "09:30";
+                      setMyEndTime(next);
+                    }
                   }}
-                  setEnd={(v) => setMyEndTime(v)}
+                  onChangeEnd={setMyEndTime}
                   inputStyle={input}
-                  labelSmall={labelSmall}
                 />
 
                 <div>
                   <div style={labelSmall}>장소</div>
-                  <input style={input} value={myPlaceText} onChange={(e) => setMyPlaceText(e.target.value)} placeholder="예) 도서관 / 온라인" />
+                  <input style={input} value={myPlaceText} onChange={(e) => setMyPlaceText(e.target.value)} placeholder="예) 도서관 / 온라인 / 회사" />
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -1710,11 +1623,7 @@ export default function Home() {
                     color="#f59e0b"
                     icon={<CalendarDays size={14} />}
                   />
-                  <Pill
-                    text={isValidTimeRange(myStartTime, myEndTime) ? fmtTimeRange(myStartTime, myEndTime) : "시간 선택 필요"}
-                    color="#a855f7"
-                    icon={<Clock size={14} />}
-                  />
+                  <Pill text={`${myStartTime}~${myEndTime}`} color="#a855f7" icon={<Clock size={14} />} />
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -1750,10 +1659,12 @@ export default function Home() {
                           <div style={{ minWidth: 0 }}>
                             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                               <span style={{ width: 10, height: 10, borderRadius: 999, background: e.color }} />
-                              <div style={{ fontWeight: 1100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</div>
+                              <div style={{ fontWeight: 1100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {e.title}
+                              </div>
                             </div>
                             <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 900, marginTop: 6 }}>
-                              {e.startDate} ~ {e.endDate} / {fmtTimeRange(e.startTime, e.endTime)} · {e.placeText}
+                              {e.startDate} ~ {e.endDate} / {e.startTime}~{e.endTime} · {e.placeText}
                             </div>
                           </div>
                           <Button variant="ghost" onClick={() => deleteMyEvent(e.id)} icon={<X size={16} />}>
@@ -1790,7 +1701,7 @@ export default function Home() {
                   <div style={{ fontWeight: 1100, marginBottom: 8 }}>설명</div>
                   <div style={{ fontSize: 13, opacity: 0.88, fontWeight: 900, lineHeight: 1.55 }}>
                     - 날짜는 오른쪽 캘린더에서 <b>드래그</b>로 선택합니다.<br />
-                    - 시간은 <b>30분 단위</b>로 선택합니다(타이핑 X).<br />
+                    - 시간은 <b>30분 단위 선택</b>입니다.<br />
                     - 일정은 서로 <b>겹쳐도</b> 그대로 표시됩니다.
                   </div>
                 </div>
@@ -1844,14 +1755,7 @@ export default function Home() {
                   <Button variant="ghost" onClick={() => setView("myCalendarSetup")} icon={<CalendarDays size={16} />}>
                     설정 화면으로
                   </Button>
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      setMyEditOpen(true);
-                      // 편집 시작 시에도 게이트/드래그는 유지
-                    }}
-                    icon={<Plus size={16} />}
-                  >
+                  <Button variant="primary" onClick={() => setMyEditOpen(true)} icon={<Plus size={16} />}>
                     내 일정 추가/수정
                   </Button>
                 </div>
@@ -1874,7 +1778,6 @@ export default function Home() {
               />
             </div>
 
-            {/* 내 캘린더 수정 모달 */}
             <Modal
               open={myEditOpen}
               title="내 캘린더 수정 — 일정(중복 가능) 추가/삭제"
@@ -1901,9 +1804,8 @@ export default function Home() {
                   <div style={{ fontWeight: 1100, marginBottom: 6 }}>추가 방법</div>
                   <div style={{ fontSize: 13, fontWeight: 900, opacity: 0.88, lineHeight: 1.55 }}>
                     1) 아래 캘린더에서 날짜 범위를 <b>드래그</b>로 선택<br />
-                    2) 시간은 <b>30분 단위 선택</b><br />
-                    3) 제목/장소 입력<br />
-                    4) “일정 추가” 누르면 목록에 쌓입니다 (겹쳐도 OK)
+                    2) 제목/시간대/장소 입력<br />
+                    3) “일정 추가” 누르면 목록에 쌓입니다 (겹쳐도 OK)
                   </div>
                 </div>
 
@@ -1913,32 +1815,26 @@ export default function Home() {
                     <input style={input} value={myTitle} onChange={(e) => setMyTitle(e.target.value)} placeholder="예) 수업 / 회의" />
 
                     <TimeRangePicker
-                      title="시간(30분 단위)"
+                      label="시간대(30분 단위)"
                       start={myStartTime}
                       end={myEndTime}
-                      setStart={(v) => {
+                      onChangeStart={(v) => {
                         setMyStartTime(v);
-                        if (!myEndTime || timeToMin(myEndTime) <= timeToMin(v)) setMyEndTime(nextSlot(v));
+                        if (!isValidTimeRange(v, myEndTime)) {
+                          const next = TIME_OPTIONS.find((t) => timeToMin(t) > timeToMin(v)) ?? "09:30";
+                          setMyEndTime(next);
+                        }
                       }}
-                      setEnd={(v) => setMyEndTime(v)}
+                      onChangeEnd={setMyEndTime}
                       inputStyle={input}
-                      labelSmall={labelSmall}
                     />
 
                     <div style={labelSmall}>장소</div>
                     <input style={input} value={myPlaceText} onChange={(e) => setMyPlaceText(e.target.value)} placeholder="예) 온라인" />
 
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <Pill
-                        text={myStartISO && myEndISO ? `${myStartISO} ~ ${myEndISO}` : "날짜 범위 선택 필요"}
-                        color="#f59e0b"
-                        icon={<CalendarDays size={14} />}
-                      />
-                      <Pill
-                        text={isValidTimeRange(myStartTime, myEndTime) ? fmtTimeRange(myStartTime, myEndTime) : "시간 선택 필요"}
-                        color="#a855f7"
-                        icon={<Clock size={14} />}
-                      />
+                      <Pill text={myStartISO && myEndISO ? `${myStartISO} ~ ${myEndISO}` : "날짜 범위 선택 필요"} color="#f59e0b" icon={<CalendarDays size={14} />} />
+                      <Pill text={`${myStartTime}~${myEndTime}`} color="#a855f7" icon={<Clock size={14} />} />
                       <Pill text="중복 일정 OK" color="#22c55e" icon={<CheckCircle2 size={14} />} />
                     </div>
 
@@ -1967,7 +1863,7 @@ export default function Home() {
                                   <div style={{ fontWeight: 1100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</div>
                                 </div>
                                 <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 900, marginTop: 6 }}>
-                                  {e.startDate} ~ {e.endDate} / {fmtTimeRange(e.startTime, e.endTime)} · {e.placeText}
+                                  {e.startDate} ~ {e.endDate} / {e.startTime}~{e.endTime} · {e.placeText}
                                 </div>
                               </div>
                               <Button variant="ghost" onClick={() => deleteMyEvent(e.id)} icon={<X size={16} />}>
@@ -2042,16 +1938,7 @@ export default function Home() {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
               {postsInCategory.map((p) => (
-                <div
-                  key={p.id}
-                  style={{ ...card, padding: 16, cursor: "pointer" }}
-                  onClick={() => {
-                    setSelectedPostId(p.id);
-                    setView("detail");
-                    setCursor(new Date());
-                    setApplyOpen(false);
-                  }}
-                >
+                <div key={p.id} style={{ ...card, padding: 16, cursor: "pointer" }} onClick={() => openPost(p.id)}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 16, fontWeight: 1100, marginBottom: 6, lineHeight: 1.2 }}>{p.title}</div>
@@ -2098,10 +1985,7 @@ export default function Home() {
                             }}
                           >
                             <span style={{ width: 10, height: 10, borderRadius: 999, background: r.color }} />
-                            {r.startDate} ~ {r.endDate}
-                            {r.startTime && r.endTime ? ` / ${fmtTimeRange(r.startTime, r.endTime)}` : ""}
-                            {" / "}
-                            {r.placeText ? `${r.label} · ${r.placeText}` : r.label}
+                            {r.startDate} ~ {r.endDate} / {r.label}
                           </span>
                         ))}
                       </div>
@@ -2114,7 +1998,7 @@ export default function Home() {
             {/* 방 만들기 모달 */}
             <Modal
               open={createOpen}
-              title="방 만들기 — 제목 / 날짜(캘린더) / 시간(30분 선택) / 장소 / 모집분야 / 상세설명"
+              title="방 만들기 — 제목 / 날짜(캘린더) / 시간대(선택) / 장소 / 모집분야 / 상세설명"
               onClose={closeCreateRoom}
               footer={
                 <>
@@ -2135,45 +2019,40 @@ export default function Home() {
                   <div style={{ fontWeight: 1100, marginBottom: 8 }}>템플릿</div>
                   <div style={{ fontSize: 13, fontWeight: 900, opacity: 0.88, lineHeight: 1.55 }}>
                     1) 제목(타이핑)<br />
-                    2) 날짜(시작~종료): 캘린더 <b>드래그 선택</b><br />
-                    3) 시간: <b>30분 단위 선택</b><br />
-                    4) 장소/모집분야/상세설명 작성
+                    2) 날짜(시작~종료): 캘린더에서 <b>드래그 선택</b><br />
+                    3) 시간대(30분 단위 선택) / 장소(타이핑) → 선택된 날짜들에 캘린더 표시<br />
+                    4) 모집분야(타이핑)<br />
+                    5) 상세설명(타이핑)
                   </div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-                  <div style={{ ...card, padding: 14 }}>
+                  <div style={{ ...card, padding: 14, display: "grid", gap: 10 }}>
                     <div style={labelSmall}>1. 제목</div>
                     <input style={input} value={cTitle} onChange={(e) => setCTitle(e.target.value)} placeholder="예) React 스터디 팀원 모집" />
 
-                    <div style={{ height: 10 }} />
-
                     <TimeRangePicker
-                      title="2. 시간(30분 단위)"
+                      label="2. 시간대(30분 단위)"
                       start={cStartTime}
                       end={cEndTime}
-                      setStart={(v) => {
+                      onChangeStart={(v) => {
                         setCStartTime(v);
-                        if (!cEndTime || timeToMin(cEndTime) <= timeToMin(v)) setCEndTime(nextSlot(v));
+                        if (!isValidTimeRange(v, cEndTime)) {
+                          const next = TIME_OPTIONS.find((t) => timeToMin(t) > timeToMin(v)) ?? "19:30";
+                          setCEndTime(next);
+                        }
                       }}
-                      setEnd={(v) => setCEndTime(v)}
+                      onChangeEnd={setCEndTime}
                       inputStyle={input}
-                      labelSmall={labelSmall}
                     />
 
-                    <div style={{ height: 10 }} />
-
-                    <div style={labelSmall}>2. 장소</div>
+                    <div style={labelSmall}>3. 장소</div>
                     <input style={input} value={cPlace} onChange={(e) => setCPlace(e.target.value)} placeholder="예) 도서관 2층 / 온라인" />
 
-                    <div style={{ height: 10 }} />
-
-                    <div style={labelSmall}>3. 모집분야</div>
+                    <div style={labelSmall}>4. 모집분야</div>
                     <input style={input} value={cField} onChange={(e) => setCField(e.target.value)} placeholder="예) 프론트 1, 백엔드 1, 디자이너 1" />
 
-                    <div style={{ height: 10 }} />
-
-                    <div style={labelSmall}>4. 상세설명</div>
+                    <div style={labelSmall}>5. 상세설명</div>
                     <textarea
                       style={{ ...input, resize: "none", height: 140, fontWeight: 850 }}
                       value={cDetail}
@@ -2181,25 +2060,17 @@ export default function Home() {
                       placeholder="자유롭게 작성하세요. 목표/진행방식/원하는 팀원 성향 등"
                     />
 
-                    <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 10 }}>
                       <Pill text={`카테고리: ${category}`} color="#22c55e" icon={<List size={14} />} />
                       <Pill text={`방장: ${userName}`} color="#60a5fa" icon={<User size={14} />} />
-                      <Pill
-                        text={cStartISO && cEndISO ? `${cStartISO} ~ ${cEndISO}` : "날짜: 아직 선택 안함"}
-                        color="#f59e0b"
-                        icon={<CalendarDays size={14} />}
-                      />
-                      <Pill
-                        text={isValidTimeRange(cStartTime, cEndTime) ? fmtTimeRange(cStartTime, cEndTime) : "시간 선택 필요"}
-                        color="#a855f7"
-                        icon={<Clock size={14} />}
-                      />
+                      <Pill text={cStartISO && cEndISO ? `${cStartISO} ~ ${cEndISO}` : "날짜: 아직 선택 안함"} color="#f59e0b" icon={<CalendarDays size={14} />} />
+                      <Pill text={`${cStartTime}~${cEndTime}`} color="#a855f7" icon={<Clock size={14} />} />
                     </div>
                   </div>
 
                   <div style={{ display: "grid", gap: 12 }}>
                     <SharedCalendar
-                      title="2. 날짜 선택 (드래그로 시작~종료)"
+                      title="날짜 선택 (드래그로 시작~종료)"
                       cursor={createCursor}
                       setCursor={setCreateCursor}
                       monthDays={cMonthDays}
@@ -2217,7 +2088,7 @@ export default function Home() {
                       <div style={{ fontWeight: 1100, marginBottom: 8 }}>캘린더 표시 규칙</div>
                       <div style={{ fontSize: 13, fontWeight: 900, opacity: 0.88, lineHeight: 1.55 }}>
                         선택한 날짜 범위(start~end)의 <b>모든 날짜 칸</b>에<br />
-                        <b>“방 일정 · 장소”</b> + <b>시간</b>이 바 형태로 표시됩니다.
+                        <b>“시간대 · 장소”</b>가 바 형태로 표시됩니다.
                       </div>
                     </div>
                   </div>
@@ -2228,7 +2099,7 @@ export default function Home() {
         ) : null}
 
         {/* View: detail */}
-        {view === "detail" && selectedPost ? (
+        {view === "detail" && activePost ? (
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{ ...card, padding: 18 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -2237,12 +2108,12 @@ export default function Home() {
                     <Button variant="ghost" onClick={() => setView("list")} icon={<ArrowLeft size={16} />}>
                       Back
                     </Button>
-                    <div style={{ fontSize: 20, fontWeight: 1100, lineHeight: 1.2 }}>{selectedPost.title}</div>
+                    <div style={{ fontSize: 20, fontWeight: 1100, lineHeight: 1.2 }}>{activePost.title}</div>
                   </div>
 
                   <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    <Pill text={`방장: ${selectedPost.ownerName}`} color="#60a5fa" icon={<Users size={14} />} />
-                    <Pill text={selectedPost.location} color="#f59e0b" icon={<MapPin size={14} />} />
+                    <Pill text={`방장: ${activePost.ownerName}`} color="#60a5fa" icon={<Users size={14} />} />
+                    <Pill text={activePost.location} color="#f59e0b" icon={<MapPin size={14} />} />
                   </div>
                 </div>
 
@@ -2253,7 +2124,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, whiteSpace: "pre-wrap", fontSize: 13, fontWeight: 850, opacity: 0.9 }}>{selectedPost.body}</div>
+              <div style={{ marginTop: 14, whiteSpace: "pre-wrap", fontSize: 13, fontWeight: 850, opacity: 0.9 }}>{activePost.body}</div>
             </div>
 
             <SharedCalendar
@@ -2262,7 +2133,7 @@ export default function Home() {
               setCursor={setCursor}
               monthDays={monthDays}
               monthStart={monthStart}
-              eventsForDate={(d) => eventsForDate(selectedPost, d)}
+              eventsForDate={(d) => eventsForDate(activePost, d)}
               selections={[]}
               draftDrag={null}
               onDayMouseDown={() => {}}
@@ -2275,7 +2146,7 @@ export default function Home() {
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 1100, marginBottom: 6 }}>핵심 기능</div>
                   <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 850 }}>
-                    “신청하기”를 누른 뒤, <b>가능 날짜(드래그)</b> + <b>시간대(30분 단위)</b>를 선택해 방장에게 전송합니다.
+                    “신청하기”를 누른 뒤, 캘린더에서 <b>가능 날짜(여러 구간)</b>를 드래그로 선택하고, <b>시간대</b>를 지정해 전송합니다.
                   </div>
                 </div>
                 <Button variant="primary" onClick={openApply} icon={<Send size={16} />}>
@@ -2287,11 +2158,11 @@ export default function Home() {
             {isOwner ? (
               <div style={{ ...card, padding: 16 }}>
                 <div style={{ fontSize: 15, fontWeight: 1100, marginBottom: 10 }}>방장 Inbox (데모)</div>
-                {inboxForSelectedPost.length === 0 ? (
+                {inboxForActivePost.length === 0 ? (
                   <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 850 }}>아직 신청이 없어요. 다른 닉네임으로 로그인해서 신청해보면 여기에 쌓입니다.</div>
                 ) : (
                   <div style={{ display: "grid", gap: 10 }}>
-                    {inboxForSelectedPost.map((a) => (
+                    {inboxForActivePost.map((a) => (
                       <div
                         key={a.id}
                         style={{
@@ -2304,18 +2175,14 @@ export default function Home() {
                         <div style={{ fontWeight: 1100 }}>
                           {a.applicant} 님 신청
                           <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.75, fontWeight: 900 }}>{a.createdAt}</span>
-                          {a.overlapAccepted ? (
-                            <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 1000, opacity: 0.9, color: "#fbbf24" }}>
-                              (중복 일정 허용)
-                            </span>
-                          ) : null}
                         </div>
 
-                        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 900, opacity: 0.9 }}>
-                          가능 시간: {a.startTime}~{a.endTime}
+                        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <Pill text={`시간대: ${a.startTime}~${a.endTime}`} color="#a855f7" icon={<Clock size={14} />} />
+                          {a.duplicate ? <Pill text="중복 일정 신청" color="#ef4444" icon={<X size={14} />} /> : null}
                         </div>
 
-                        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 900, opacity: 0.9 }}>가능 날짜:</div>
+                        <div style={{ marginTop: 10, fontSize: 13, fontWeight: 900, opacity: 0.9 }}>가능 날짜:</div>
                         <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 8 }}>
                           {a.ranges.map((r) => (
                             <span
@@ -2334,7 +2201,7 @@ export default function Home() {
                           ))}
                         </div>
 
-                        {a.note ? <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, fontWeight: 900 }}>메모: {a.note}</div> : null}
+                        {a.note ? <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, fontWeight: 900, whiteSpace: "pre-wrap" }}>메모: {a.note}</div> : null}
                       </div>
                     ))}
                   </div>
@@ -2345,13 +2212,13 @@ export default function Home() {
             {/* Apply Modal */}
             <Modal
               open={applyOpen}
-              title="신청하기 — 가능 날짜(드래그) + 시간대(30분) 선택 후 전송"
+              title="신청하기 — 가능한 날짜(여러 구간) + 시간대 선택 후 방장에게 전송"
               onClose={() => {
                 setApplyOpen(false);
                 setDragging(false);
                 setDragStartISO(null);
                 setDragEndISO(null);
-                resetApplyConflictGate();
+                setAllowDuplicateApply(false);
               }}
               footer={
                 <>
@@ -2362,10 +2229,10 @@ export default function Home() {
                     선택 초기화
                   </Button>
                   <Button
-                    variant={hasApplyConflict ? "danger" : "primary"}
+                    variant={allowDuplicateApply ? "danger" : "primary"}
                     onClick={sendToOwner}
                     icon={<Send size={16} />}
-                    disabled={(mySelectionsByPost[selectedPost.id]?.length ?? 0) === 0}
+                    disabled={(mySelectionsByPost[activePost.id]?.length ?? 0) === 0 || !isValidTimeRange(applyStartTime, applyEndTime)}
                   >
                     방장에게 전송
                   </Button>
@@ -2376,97 +2243,74 @@ export default function Home() {
                 <div style={{ ...card, padding: 14 }}>
                   <div style={{ fontWeight: 1100, marginBottom: 6 }}>안내) 신청 프로세스</div>
                   <div style={{ fontSize: 13, fontWeight: 900, opacity: 0.88, lineHeight: 1.5 }}>
-                    1) 아래에서 가능한 날짜를 <b>드래그</b>해 범위를 선택합니다.<br />
-                    2) 시간대를 <b>30분 단위</b>로 선택합니다.<br />
-                    3) “방장에게 전송”을 누르면 신청이 전송됩니다.<br />
-                    4) 내 캘린더/방 일정과 겹치면 <b>1회 경고 후 취소</b>, 다시 전송하면 <b>중복 일정으로 허용</b>됩니다.
+                    1) 아래 캘린더에서 가능한 날짜를 <b>마우스로 누른 채 드래그</b>해 범위를 선택합니다.<br />
+                    2) 여러 번 드래그해서 <b>여러 구간</b>을 추가할 수 있습니다.<br />
+                    3) 시간대를 선택하고 “방장에게 전송”을 누릅니다.<br />
+                    4) 내 일정/내 방/내 신청과 <b>날짜+시간</b>이 겹치면 <b>1회 경고 후 취소</b>됩니다. (재전송 시 중복 신청 허용)
                   </div>
                 </div>
 
-                {/* ✅ 시간 선택 */}
-                <div style={{ ...card, padding: 14, display: "grid", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <Pill text={`신청자: ${userName}`} color="#60a5fa" icon={<User size={14} />} />
-                    <Pill text={`방장: ${selectedPost.ownerName}`} color="#22c55e" icon={<Users size={14} />} />
-                    <Pill text="내 일정은 캘린더에 ‘내:’로 표시" color="#ef4444" icon={<CalendarDays size={14} />} />
-                  </div>
-
+                <div style={{ ...card, padding: 14 }}>
                   <TimeRangePicker
-                    title="신청 시간대(30분 단위)"
+                    label="신청 시간대(30분 단위)"
                     start={applyStartTime}
                     end={applyEndTime}
-                    setStart={(v) => {
-                      resetApplyConflictGate();
+                    onChangeStart={(v) => {
                       setApplyStartTime(v);
-                      if (!applyEndTime || timeToMin(applyEndTime) <= timeToMin(v)) setApplyEndTime(nextSlot(v));
+                      if (!isValidTimeRange(v, applyEndTime)) {
+                        const next = TIME_OPTIONS.find((t) => timeToMin(t) > timeToMin(v)) ?? "19:30";
+                        setApplyEndTime(next);
+                      }
                     }}
-                    setEnd={(v) => {
-                      resetApplyConflictGate();
-                      setApplyEndTime(v);
-                    }}
+                    onChangeEnd={setApplyEndTime}
                     inputStyle={input}
-                    labelSmall={labelSmall}
                   />
-
-                  {applyConflictMessage ? (
-                    <div
-                      style={{
-                        padding: 12,
-                        borderRadius: 16,
-                        background: "rgba(239,68,68,0.12)",
-                        border: "1px solid rgba(239,68,68,0.25)",
-                        fontSize: 13,
-                        fontWeight: 900,
-                        lineHeight: 1.45,
-                      }}
-                    >
-                      ⚠️ {applyConflictMessage}
-                    </div>
-                  ) : null}
-
-                  {hasApplyConflict && isValidTimeRange(applyStartTime, applyEndTime) ? (
-                    <div style={{ fontSize: 12, opacity: 0.9, fontWeight: 900, color: "#fbbf24" }}>
-                      현재 선택한 날짜/시간이 내 캘린더 또는 방 일정과 겹칩니다. (전송 시 1회 경고)
+                  {allowDuplicateApply ? (
+                    <div style={{ marginTop: 10, fontSize: 12, fontWeight: 900, opacity: 0.9, color: "#f59e0b" }}>
+                      경고가 1회 발생했습니다. 다시 전송하면 중복일정으로 신청됩니다.
                     </div>
                   ) : null}
                 </div>
 
                 <SharedCalendar
-                  title="가능 날짜 선택(드래그) — 내 일정 겹침 자동 표시"
+                  title="가능 날짜 선택(드래그) — (내 일정도 함께 표시됨)"
                   cursor={cursor}
                   setCursor={setCursor}
                   monthDays={monthDays}
                   monthStart={monthStart}
-                  eventsForDate={(d) => applyEventsForDate(d)}
+                  eventsForDate={(d) => {
+                    // 모집방 이벤트 + 내 캘린더 이벤트를 같이 보여줌(자동 참고용)
+                    const a = eventsForDate(activePost, d);
+                    const b = myEventsForDate(d);
+                    return [...a, ...b];
+                  }}
                   selections={currentSelections}
                   draftDrag={draftDrag}
                   onDayMouseDown={startDrag}
                   onDayMouseEnter={extendDrag}
                   onClearSelections={clearMySelections}
                   interactive={true}
-                  cellHint={(dayISO) => {
-                    // ✅ 내 일정 겹침 표시(시간 선택 전이면 같은 날짜에 내 일정이 있으면 표시)
-                    const hasMyOnDay = myCalendarEvents.some((ev) => betweenISO(dayISO, ev.startDate, ev.endDate));
-                    if (!hasMyOnDay) return null;
-
-                    // 시간대까지 체크 가능하면 더 정확히 표시
-                    if (isValidTimeRange(applyStartTime, applyEndTime)) {
-                      const conflict = myCalendarEvents.some(
-                        (ev) =>
-                          betweenISO(dayISO, ev.startDate, ev.endDate) &&
-                          timeOverlap(applyStartTime, applyEndTime, ev.startTime, ev.endTime)
-                      );
-                      if (!conflict) return null;
-                      return { bg: "rgba(239,68,68,0.12)", badge: "내 일정" };
-                    }
-
-                    // 시간 선택 전: 일단 ‘내 일정 있음’ 정도로 표시
-                    return { bg: "rgba(239,68,68,0.08)", badge: "내 일정" };
-                  }}
                 />
 
                 <div style={{ ...card, padding: 14 }}>
-                  <div style={{ marginTop: 2 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <Pill text={`신청자: ${userName}`} color="#60a5fa" icon={<User size={14} />} />
+                    <Pill text={`방장: ${activePost.ownerName}`} color="#22c55e" icon={<Users size={14} />} />
+                    <Pill text={`시간대: ${applyStartTime}~${applyEndTime}`} color="#a855f7" icon={<Clock size={14} />} />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <div style={labelSmall}>방장에게 전달할 메모(선택)</div>
+                    <textarea
+                      value={applyNote}
+                      onChange={(e) => setApplyNote(e.target.value)}
+                      rows={3}
+                      style={{ ...input, resize: "none", fontWeight: 850 }}
+                      placeholder="예) 저는 주로 저녁 가능해요 / 온라인 선호 / 특정 날짜는 불가 등"
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 13, fontWeight: 1100, marginBottom: 8 }}>내가 선택한 가능 날짜</div>
                     {currentSelections.length === 0 ? (
                       <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 900 }}>아직 선택이 없어요. 캘린더에서 드래그로 구간을 추가하세요.</div>
@@ -2489,20 +2333,6 @@ export default function Home() {
                         ))}
                       </div>
                     )}
-                  </div>
-
-                  <div style={{ marginTop: 12 }}>
-                    <div style={labelSmall}>방장에게 전달할 메모(선택)</div>
-                    <textarea
-                      value={applyNote}
-                      onChange={(e) => {
-                        resetApplyConflictGate();
-                        setApplyNote(e.target.value);
-                      }}
-                      rows={3}
-                      style={{ ...input, resize: "none", fontWeight: 850 }}
-                      placeholder="예) 저는 주로 저녁 가능해요 / 온라인 선호 / 특정 날짜는 불가 등"
-                    />
                   </div>
                 </div>
               </div>
@@ -2551,8 +2381,8 @@ function CategoryCard({
         cursor: "pointer",
         transition: "transform 120ms ease",
       }}
-      onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)")}
-      onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.transform = "translateY(0px)")}
+      onMouseEnter={(e) => (((e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"))}
+      onMouseLeave={(e) => (((e.currentTarget as HTMLDivElement).style.transform = "translateY(0px)"))}
     >
       <div
         style={{
@@ -2583,7 +2413,7 @@ function CategoryCard({
           fontWeight: 900,
         }}
       >
-        클릭 → 게시글 리스트(방 만들기) → 상세 → 신청하기 → 날짜 드래그 + 시간 선택 → 전송
+        클릭 → 게시글 리스트(방 만들기) → 상세 → 신청하기 → 날짜 드래그 + 시간대 선택 → 전송
       </div>
     </div>
   );
