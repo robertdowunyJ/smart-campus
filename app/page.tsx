@@ -552,24 +552,29 @@ function TimeRangePicker({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <div style={{ fontSize: 12, opacity: 0.82, fontWeight: 1000 }}>{label}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <select style={inputStyle} value={start} onChange={(e) => onChangeStart(e.target.value)}>
-          {startOptions.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+      {(() => {
+        // ensure option text is visible on light popup backgrounds by overriding the text color
+        const selectStyle: React.CSSProperties = { ...inputStyle, color: "#0f172a" };
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <select style={selectStyle} value={start} onChange={(e) => onChangeStart(e.target.value)}>
+              {startOptions.map((t) => (
+                <option key={t} value={t} style={{ color: "#0f172a" }}>
+                  {t}
+                </option>
+              ))}
+            </select>
 
-        <select style={inputStyle} value={end} onChange={(e) => onChangeEnd(e.target.value)}>
-          {endOptions.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </div>
-
+            <select style={selectStyle} value={end} onChange={(e) => onChangeEnd(e.target.value)}>
+              {endOptions.map((t) => (
+                <option key={t} value={t} style={{ color: "#0f172a" }}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      })()}
       {!isValidTimeRange(start, end) ? (
         <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 900, color: "#f59e0b" }}>
           끝 시간이 시작 시간보다 뒤여야 합니다.
@@ -829,6 +834,14 @@ export default function Home() {
 
   // 내 캘린더 수정 모달
   const [myEditOpen, setMyEditOpen] = useState(false);
+
+  // highlight persistent selection for my calendar setup/draft. When user finalizes a drag,
+  // we store myStartISO/myEndISO. Use this in SharedCalendar selections to keep
+  // previously selected range highlighted even when starting a new drag.
+  const mySelections = useMemo(() => {
+    if (myStartISO && myEndISO) return [{ id: "myPersist", startDate: myStartISO, endDate: myEndISO }];
+    return [];
+  }, [myStartISO, myEndISO]);
 
   const myDraft = useMemo(() => {
     if (myDragging && myDragStartISO && myDragEndISO) return { startISO: myDragStartISO, endISO: myDragEndISO };
@@ -1269,6 +1282,12 @@ export default function Home() {
     return null;
   }, [cDragging, cDragStartISO, cDragEndISO, cStartISO, cEndISO]);
 
+  // persistent selection for create room: highlight the previously finalized date range
+  const createSelections = useMemo(() => {
+    if (cStartISO && cEndISO) return [{ id: "createPersist", startDate: cStartISO, endDate: cEndISO }];
+    return [];
+  }, [cStartISO, cEndISO]);
+
   const openCreateRoom = () => {
     setCreateOpen(true);
     setCTitle("");
@@ -1421,8 +1440,10 @@ export default function Home() {
   };
 
   const shell: React.CSSProperties = {
-    maxWidth: 1180,
-    margin: "0 auto",
+    // Stretch the main container to full width instead of centering it.
+    maxWidth: "100%",
+    width: "100%",
+    margin: 0,
     padding: 18,
   };
 
@@ -1459,7 +1480,7 @@ export default function Home() {
     fontWeight: 800,
   };
 
-  const labelSmall: React.CSSProperties = { fontSize: 12, opacity: 0.82, fontWeight: 1000 };
+  const labelSmall: React.CSSProperties = { fontSize: 14, opacity: 0.82, fontWeight: 1000 };
 
   // -----------------------------
   // Render
@@ -1586,7 +1607,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
               {/* left: form + list */}
               <div style={{ ...card, padding: 16, display: "grid", gap: 12 }}>
                 <div style={{ fontWeight: 1100, fontSize: 15 }}>일정 추가</div>
@@ -1689,7 +1710,7 @@ export default function Home() {
                   monthDays={myMonthDays}
                   monthStart={myMonthStart}
                   eventsForDate={(d) => myEventsForDate(d)}
-                  selections={[]}
+                  selections={mySelections}
                   draftDrag={myDraft}
                   onDayMouseDown={startMyDrag}
                   onDayMouseEnter={extendMyDrag}
@@ -1809,7 +1830,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
                   <div style={{ ...card, padding: 14, display: "grid", gap: 10 }}>
                     <div style={labelSmall}>제목</div>
                     <input style={input} value={myTitle} onChange={(e) => setMyTitle(e.target.value)} placeholder="예) 수업 / 회의" />
@@ -1886,7 +1907,7 @@ export default function Home() {
                     monthDays={myMonthDays}
                     monthStart={myMonthStart}
                     eventsForDate={(d) => myEventsForDate(d)}
-                    selections={[]}
+                    selections={mySelections}
                     draftDrag={myDraft}
                     onDayMouseDown={startMyDrag}
                     onDayMouseEnter={extendMyDrag}
@@ -1936,7 +1957,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
               {postsInCategory.map((p) => (
                 <div key={p.id} style={{ ...card, padding: 16, cursor: "pointer" }} onClick={() => openPost(p.id)}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
@@ -2014,19 +2035,8 @@ export default function Home() {
                 </>
               }
             >
-              <div style={{ display: "grid", gap: 14 }}>
-                <div style={{ ...card, padding: 14 }}>
-                  <div style={{ fontWeight: 1100, marginBottom: 8 }}>템플릿</div>
-                  <div style={{ fontSize: 13, fontWeight: 900, opacity: 0.88, lineHeight: 1.55 }}>
-                    1) 제목(타이핑)<br />
-                    2) 날짜(시작~종료): 캘린더에서 <b>드래그 선택</b><br />
-                    3) 시간대(30분 단위 선택) / 장소(타이핑) → 선택된 날짜들에 캘린더 표시<br />
-                    4) 모집분야(타이핑)<br />
-                    5) 상세설명(타이핑)
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                <div style={{ display: "grid", gap: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
                   <div style={{ ...card, padding: 14, display: "grid", gap: 10 }}>
                     <div style={labelSmall}>1. 제목</div>
                     <input style={input} value={cTitle} onChange={(e) => setCTitle(e.target.value)} placeholder="예) React 스터디 팀원 모집" />
@@ -2076,7 +2086,7 @@ export default function Home() {
                       monthDays={cMonthDays}
                       monthStart={cMonthStart}
                       eventsForDate={(d) => createPreviewEventsForDate(d)}
-                      selections={[]}
+                      selections={createSelections}
                       draftDrag={createDraft}
                       onDayMouseDown={cStartDrag}
                       onDayMouseEnter={cExtendDrag}
@@ -2418,3 +2428,4 @@ function CategoryCard({
     </div>
   );
 }
+
